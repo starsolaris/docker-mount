@@ -20,93 +20,55 @@ setns(container) → open_tree(CLONE|RECURSIVE) → setns(host) → move_mount �
 
 ## Requirements
 
-- **Linux ≥ 5.8** (for `AT_RECURSIVE` in `open_tree`)
-- **Root** or `CAP_SYS_ADMIN` + `CAP_SYS_CHROOT`
-- Docker (containerd/cri-o/podman planned)
+- Linux ≥ 5.8
+- Root or `CAP_SYS_ADMIN` + `CAP_SYS_CHROOT`
+- Docker
 
 ## Installation
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/main/install.sh | sh
+```
+
+With systemd:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/main/install.sh | sh -s -- --systemd
+```
+
+### From source
+
+```bash
 make all
-sudo make install          # installs docker-mount to /usr/local/bin
-sudo make install-systemd  # installs systemd unit (optional)
+sudo make install
 ```
 
 ## Usage
 
-### Daemon mode
-
-```bash
-docker-mount --target /opt/mount
-```
-
-Watches Docker events and maintains exported mounts automatically. New containers appear, removed containers are cleaned up, restarted containers get their mounts refreshed.
-
-### CLI subcommands
-
-| Command | Description |
-|---------|-------------|
-| `list` | Show all exported mounts |
-| `info <name>` | Show container metadata (PID, namespace, image, etc.) |
-| `cat <name> <path>` | Read a file via `/proc/<pid>/root` (no export needed) |
-| `exec <name> <cmd...>` | Run a command inside a container via `docker exec` |
-
-## Parameters
-
-### Daemon flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--target` | *(required)* | Directory where container filesystems are exported. Each container gets a subdirectory: `<target>/<container-name>` |
-| `--helper` | *(embedded)* | Path to the C helper binary. Empty by default — the helper is embedded into the daemon binary and extracted to a temp file at runtime. Set explicitly to use an external helper |
-| `--interval` | `30s` | Poll reconciliation interval. A full reconcile runs every interval to catch any events missed by Docker event streaming |
-| `--cleanup-on-exit` | `true` | Recursively unmount all exports on daemon shutdown. Set `=false` to leave mounts intact |
-
-### Signals
-
-| Signal | Behavior |
-|--------|----------|
-| `SIGTERM`, `SIGINT` | Graceful shutdown. Unmounts all exports (unless `--cleanup-on-exit=false`) |
-
-## Examples
-
-### Start daemon
+### Daemon
 
 ```bash
 sudo docker-mount --target /opt/mount
 ```
 
-### Start daemon with custom settings
+Watches Docker events and maintains exported mounts automatically. New containers appear, removed containers are cleaned up, restarted containers get their mounts refreshed.
 
-```bash
-sudo docker-mount \
-    --target /srv/containers \
-    --helper /opt/docker-mount/docker-mount-helper \
-    --interval 10s \
-    --cleanup-on-exit
+### CLI
+
+| Command | Description |
+|---------|-------------|
+| `list` | Show all exported mounts |
+| `info <name>` | Container metadata: PID, namespace, image |
+| `cat <name> <path>` | Read a file via `/proc/<pid>/root` — no `--target` needed |
+| `exec <name> <cmd...>` | Run command inside container — no `--target` needed |
+
 ```
-
-### systemd
-
-```bash
-sudo make install-systemd
-sudo systemctl daemon-reload
-sudo systemctl enable --now docker-mount
-```
-
-### List exports
-
-```bash
-$ docker-mount list
+$ docker-mount --target /opt/mount list
 NAME       TARGET                  MOUNT_ID
 web-php    /opt/mount/web-php      1234
 postgres   /opt/mount/postgres     1235
-```
 
-### Inspect a container export
-
-```bash
-$ docker-mount info web-php
+$ docker-mount --target /opt/mount info web-php
 Name:        web-php
 PID:         12345
 Namespace:   mnt:[4026536190]
@@ -116,26 +78,83 @@ Target:      /opt/mount/web-php
 Mounted:     yes
 ```
 
-### Read a file without exporting
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--target` | *(required)* | Directory where container filesystems are exported |
+| `--helper` | *(embedded)* | Path to external C helper. Default: extracted from binary at runtime |
+| `--interval` | `30s` | Poll reconciliation fallback — catches missed Docker events after daemon restart or connection loss |
+| `--cleanup-on-exit` | `true` | Unmount all exports on shutdown |
+
+## Examples
 
 ```bash
-$ docker-mount cat web-php /etc/php/8.2/fpm/php-fpm.conf
+# daemon
+sudo docker-mount --target /opt/mount
+
+# custom settings
+sudo docker-mount --target /srv/fs --interval 10s --cleanup-on-exit=false
+
+# systemd
+sudo make install-systemd
+sudo systemctl enable --now docker-mount
+
+# list exports
+docker-mount --target /opt/mount list
+
+# inspect
+docker-mount --target /opt/mount info web-php
+
+# read a file (no --target needed)
+docker-mount cat web-php /etc/hostname
+
+# run a command (no --target needed)
+docker-mount exec web-php php -v
+
+# work with exported filesystem
+vim /opt/mount/web-php/var/www/html/index.php
+grep -r "PDO" /opt/mount/web-php/var/www/
+rsync -a /opt/mount/web-php/var/www/ /backup/web-php/
 ```
 
-### Run a command in a container
+### Systemd
 
 ```bash
-$ docker-mount exec web-php php -v
-PHP 8.2.18 (cli)
+# via installer
+curl -fsSL .../install.sh | sh -s -- --systemd
+
+# or from source
+sudo make install-systemd
+sudo systemctl enable --now docker-mount
 ```
 
-### Work with exported filesystem
+The unit expects `/usr/local/bin/docker-mount`. Edit `ExecStart` in `/etc/systemd/system/docker-mount.service` to set `--target`.
+
+## Building from source
 
 ```bash
-$ vim /opt/mount/web-php/var/www/html/index.php
-$ grep -r "PDO" /opt/mount/web-php/var/www/
-$ rsync -a /opt/mount/web-php/var/www/ /backup/web-php/
+make all       # build docker-mount (helper embedded)
+make build     # Go daemon only (needs Go ≥ 1.21)
+make vet       # run go vet
+make test      # run tests
+make clean     # remove build artifacts
 ```
+
+### Note on helper binary size
+
+The C helper is ~700K when built with glibc (glibc's static `printf` pulls in locale and NSS). With musl it's ~30K. The Makefile auto-detects `musl-gcc` and falls back to `gcc`:
+
+```bash
+# Debian/Ubuntu
+apt install musl-tools
+# Fedora/RHEL
+dnf install musl-gcc
+
+make all  # picks up musl-gcc automatically
+```
+
+The helper is embedded into the daemon binary — the standalone size only matters for the build step.
 
 ## Behavior
 
@@ -149,7 +168,8 @@ Mount is automatically cleaned up (`umount -R`).
 
 ### Container re-creation (same name)
 
-New overlay → new superblock. Old mount is replaced with the new one.
+New overlay → new superblock. Old mount is replaced atomically
+(Linux 6.8+) or via lazy umount + remount (older kernels).
 
 ### Read-only volumes
 
@@ -159,33 +179,15 @@ Bind mounts marked `:ro` inside the container remain read-only in the export.
 
 Namespace inode comparison prevents false matches when PIDs are reused.
 
-## Building from source
+### Daemon restart
 
-```bash
-make all       # builds docker-mount (helper embedded)
-make helper    # C helper only (needs gcc or musl-gcc)
-make build     # Go daemon only (needs Go ≥ 1.21 + embedded helper)
-make vet       # run go vet
-make test      # run tests
-make clean     # remove build artifacts
-```
+On startup, orphan mounts (containers no longer running) are cleaned up. Active container mounts are left untouched — no unnecessary remounts.
 
-### Note on helper binary size
+### Signals
 
-`docker-mount-helper` is ~700K when built with glibc. This is normal — glibc's
-static `printf` pulls in locale and NSS infrastructure that can't be removed.
-The code itself is 153 lines.
-
-For a minimal binary (~15K), install musl:
-
-```bash
-# Debian/Ubuntu
-apt install musl-tools
-# Fedora/RHEL
-dnf install musl-gcc
-
-make helper  # picks up musl-gcc automatically
-```
+| Signal | Behavior |
+|--------|----------|
+| `SIGTERM`, `SIGINT` | Graceful shutdown. Unmounts all exports (unless `--cleanup-on-exit=false`) |
 
 ## License
 
