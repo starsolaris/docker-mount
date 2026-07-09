@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
@@ -36,20 +37,28 @@ import (
 	"mountns/internal/watch"
 )
 
+//go:embed docker-mount-helper
+var embeddedHelper []byte
+
 func main() {
-	// Daemon flags.
 	targetDir := flag.String("target", "/opt/mount", "target directory for mounts")
-	helperPath := flag.String("helper", "./docker-mount-helper", "path to C helper binary")
+	helperPath := flag.String("helper", "", "path to C helper binary (empty = use embedded)")
 	interval := flag.Duration("interval", 30*time.Second, "poll reconciliation interval")
 	cleanupOnExit := flag.Bool("cleanup-on-exit", true, "unmount all exports on shutdown (default true)")
 
 	flag.Parse()
 
+	resolvedHelper, cleanup, err := resolveHelper(*helperPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "helper: %v\n", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
 	args := flag.Args()
 
-	// If a subcommand is provided, handle it and exit (no daemon mode).
 	if len(args) > 0 {
-		handleSubcommand(args, *targetDir, *helperPath)
+		handleSubcommand(args, *targetDir, resolvedHelper)
 		return
 	}
 
@@ -65,7 +74,7 @@ func main() {
 	}
 	*targetDir = absTarget
 
-	if err := checkPrerequisites(*targetDir, *helperPath); err != nil {
+	if err := checkPrerequisites(*targetDir, resolvedHelper); err != nil {
 		slog.Error("prerequisite check failed", "error", err)
 		os.Exit(1)
 	}
@@ -74,12 +83,12 @@ func main() {
 	defer cancel()
 
 	rt := runtime.NewDockerRuntime()
-	mgr := mount.NewManager(*targetDir, *helperPath)
+	mgr := mount.NewManager(*targetDir, resolvedHelper)
 	w := watch.NewWatcher(rt, mgr, *interval)
 
 	slog.Info("starting docker-mount daemon",
 		"target", *targetDir,
-		"helper", *helperPath,
+		"helper", resolvedHelper,
 		"interval", interval.String(),
 	)
 
@@ -295,4 +304,34 @@ func hasCapSysAdmin() bool {
 		}
 	}
 	return false
+}
+
+func resolveHelper(explicitPath string) (string, func(), error) {
+	noop := func() {}
+
+	if explicitPath != "" {
+		return explicitPath, noop, nil
+	}
+
+	if len(embeddedHelper) == 0 {
+		return "", noop, fmt.Errorf("no embedded helper and no --helper flag")
+	}
+
+	f, err := os.CreateTemp("", "docker-mount-helper-*")
+	if err != nil {
+		return "", noop, err
+	}
+	if _, err := f.Write(embeddedHelper); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", noop, err
+	}
+	if err := f.Chmod(0755); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", noop, err
+	}
+	f.Close()
+
+	return f.Name(), func() { os.Remove(f.Name()) }, nil
 }

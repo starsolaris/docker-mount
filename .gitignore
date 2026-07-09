@@ -1,6 +1,6 @@
 .idea
 .vscode
 .omo
-
 /docker-mount
 /docker-mount-helper
+/cmd/docker-mount/docker-mount-helper

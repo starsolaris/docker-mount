@@ -28,16 +28,8 @@ setns(container) → open_tree(CLONE|RECURSIVE) → setns(host) → move_mount �
 
 ```bash
 make all
-sudo make install          # installs both binaries to /usr/local/bin
+sudo make install          # installs docker-mount to /usr/local/bin
 sudo make install-systemd  # installs systemd unit (optional)
-```
-
-Or manually:
-
-```bash
-gcc -static -O2 -Wall -o docker-mount-helper helper/main.c
-go build -o docker-mount ./cmd/docker-mount/
-sudo cp docker-mount-helper docker-mount /usr/local/bin/
 ```
 
 ## Usage
@@ -66,7 +58,7 @@ Watches Docker events and maintains exported mounts automatically. New container
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--target` | `/opt/mount` | Directory where container filesystems are exported. Each container gets a subdirectory: `<target>/<container-name>` |
-| `--helper` | `./docker-mount-helper` | Path to the C helper binary. The helper performs the actual `setns` + `open_tree` + `move_mount` syscalls. Defaults to current directory for development; use `/usr/local/bin/docker-mount-helper` after `make install` |
+| `--helper` | *(embedded)* | Path to the C helper binary. Empty by default — the helper is embedded into the daemon binary and extracted to a temp file at runtime. Set explicitly to use an external helper |
 | `--interval` | `30s` | Poll reconciliation interval. A full reconcile runs every interval to catch any events missed by Docker event streaming |
 | `--cleanup-on-exit` | `true` | Recursively unmount all exports on daemon shutdown. Set `=false` to leave mounts intact |
 
@@ -170,9 +162,9 @@ Namespace inode comparison prevents false matches when PIDs are reused.
 ## Building from source
 
 ```bash
-make all       # builds both binaries
+make all       # builds docker-mount (helper embedded)
 make helper    # C helper only (needs gcc or musl-gcc)
-make build     # Go daemon only (needs Go ≥ 1.21)
+make build     # Go daemon only (needs Go ≥ 1.21 + embedded helper)
 make vet       # run go vet
 make test      # run tests
 make clean     # remove build artifacts
