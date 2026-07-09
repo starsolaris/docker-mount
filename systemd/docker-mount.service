@@ -1,0 +1,17 @@
+[Unit]
+Description=Docker Container Filesystem Exporter
+Documentation=https://github.com/starsolaris/docker-mount
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/docker-mount --target /opt/mount --helper /usr/local/bin/docker-mount-helper
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+AmbientCapabilities=CAP_SYS_ADMIN CAP_SYS_CHROOT
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_CHROOT
+
+[Install]
+WantedBy=multi-user.target
