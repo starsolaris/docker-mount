@@ -57,7 +57,7 @@ Watches Docker events and maintains exported mounts automatically. New container
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--target` | `/opt/mount` | Directory where container filesystems are exported. Each container gets a subdirectory: `<target>/<container-name>` |
+| `--target` | *(required)* | Directory where container filesystems are exported. Each container gets a subdirectory: `<target>/<container-name>` |
 | `--helper` | *(embedded)* | Path to the C helper binary. Empty by default — the helper is embedded into the daemon binary and extracted to a temp file at runtime. Set explicitly to use an external helper |
 | `--interval` | `30s` | Poll reconciliation interval. A full reconcile runs every interval to catch any events missed by Docker event streaming |
 | `--cleanup-on-exit` | `true` | Recursively unmount all exports on daemon shutdown. Set `=false` to leave mounts intact |

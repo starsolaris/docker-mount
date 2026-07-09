@@ -41,7 +41,7 @@ import (
 var embeddedHelper []byte
 
 func main() {
-	targetDir := flag.String("target", "/opt/mount", "target directory for mounts")
+	targetDir := flag.String("target", "", "target directory for mounts (required)")
 	helperPath := flag.String("helper", "", "path to C helper binary (empty = use embedded)")
 	interval := flag.Duration("interval", 30*time.Second, "poll reconciliation interval")
 	cleanupOnExit := flag.Bool("cleanup-on-exit", true, "unmount all exports on shutdown (default true)")
@@ -58,8 +58,13 @@ func main() {
 	args := flag.Args()
 
 	if len(args) > 0 {
-		handleSubcommand(args, *targetDir, resolvedHelper)
+		handleSubcommand(args, *targetDir)
 		return
+	}
+
+	if *targetDir == "" {
+		fmt.Fprintln(os.Stderr, "--target is required")
+		os.Exit(1)
 	}
 
 	// --- Daemon mode ---
@@ -120,7 +125,7 @@ func main() {
 }
 
 // handleSubcommand dispatches to a CLI subcommand.
-func handleSubcommand(args []string, targetDir, helperPath string) {
+func handleSubcommand(args []string, targetDir string) {
 	subcmd := args[0]
 	rest := args[1:]
 
