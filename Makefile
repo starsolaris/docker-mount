@@ -5,6 +5,7 @@ BINDIR    ?= $(PREFIX)/bin
 
 HELPER_SRC = helper/main.c
 HELPER_BIN = docker-mount-helper
+EMBED_HELPER = cmd/docker-mount/docker-mount-helper
 DAEMON_DIR = ./cmd/docker-mount
 DAEMON_BIN = docker-mount
 
@@ -15,23 +16,25 @@ CFLAGS    = -static -O2 -Wall
 LDFLAGS   = -s
 GOFLAGS   = -trimpath -ldflags="-s -w"
 
-all: helper build
+all: helper $(EMBED_HELPER) build
 
 helper: $(HELPER_SRC)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $(HELPER_BIN) $(HELPER_SRC)
 
-build:
+$(EMBED_HELPER): helper
+	cp $(HELPER_BIN) $(EMBED_HELPER)
+
+build: $(EMBED_HELPER)
 	go build $(GOFLAGS) -o $(DAEMON_BIN) $(DAEMON_DIR)
 
-test:
+test: $(EMBED_HELPER)
 	go test ./...
 
-vet:
+vet: $(EMBED_HELPER)
 	go vet ./...
 
-install: helper build
+install: build
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(HELPER_BIN) $(DESTDIR)$(BINDIR)/$(HELPER_BIN)
 	install -m 755 $(DAEMON_BIN) $(DESTDIR)$(BINDIR)/$(DAEMON_BIN)
 
 install-systemd:
@@ -39,4 +42,4 @@ install-systemd:
 	install -m 644 systemd/docker-mount.service $(DESTDIR)/etc/systemd/system/docker-mount.service
 
 clean:
-	rm -f $(HELPER_BIN) $(DAEMON_BIN)
+	rm -f $(HELPER_BIN) $(DAEMON_BIN) $(EMBED_HELPER)

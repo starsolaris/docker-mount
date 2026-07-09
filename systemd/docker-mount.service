@@ -6,7 +6,7 @@ After=docker.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/docker-mount --target /opt/mount --helper /usr/local/bin/docker-mount-helper
+ExecStart=/usr/local/bin/docker-mount --target /opt/mount
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
