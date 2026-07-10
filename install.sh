@@ -2,7 +2,7 @@
 set -eu
 
 # docker-mount installer — pipe via curl:
-#   curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/master/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --systemd
 
 REPO="starsolaris/docker-mount"
@@ -24,10 +24,16 @@ done
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "missing: $1"; exit 1; }; }
 info()    { echo "  $*"; }
 err()     { echo "error: $*" >&2; }
+as_root() { if [ "$(id -u)" = "0" ]; then "$@"; else sudo "$@"; fi; }
 
 need_cmd curl
 need_cmd tar
 need_cmd install
+
+if [ "$(id -u)" != "0" ] && ! command -v sudo >/dev/null 2>&1; then
+    err "not root and sudo not found — run as root or install sudo"
+    exit 1
+fi
 
 # --- detect platform ---
 case "$(uname -s)" in
@@ -77,17 +83,13 @@ fi
 
 # --- install ---
 info "installing to $BINDIR/$BIN"
-install -d "$BINDIR"
-install -m 755 "$tmp/$BIN" "$BINDIR/$BIN"
+as_root install -d "$BINDIR"
+as_root install -m 755 "$tmp/$BIN" "$BINDIR/$BIN"
 
 info "$BIN $VERSION installed to $BINDIR/$BIN"
 
 # --- systemd (optional) ---
 if [ "$WITH_SYSTEMD" = "1" ]; then
-    if [ "$(id -u)" != "0" ]; then
-        err "--systemd requires root"
-        exit 1
-    fi
     need_cmd systemctl
     SERVICE="/etc/systemd/system/docker-mount.service"
     info "installing systemd unit..."
@@ -96,8 +98,8 @@ if [ "$WITH_SYSTEMD" = "1" ]; then
         err "failed to download systemd unit for $VERSION"
         exit 1
     }
-    install -m 644 "$tmp/docker-mount.service" "$SERVICE"
-    systemctl daemon-reload
+    as_root install -m 644 "$tmp/docker-mount.service" "$SERVICE"
+    as_root systemctl daemon-reload
     info "systemd unit installed. enable with: systemctl enable --now docker-mount"
 fi
 

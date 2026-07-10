@@ -27,13 +27,13 @@ setns(container) → open_tree(CLONE|RECURSIVE) → setns(host) → move_mount �
 ## Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/master/install.sh | sh
 ```
 
 With systemd:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/main/install.sh | sh -s -- --systemd
+curl -fsSL https://raw.githubusercontent.com/starsolaris/docker-mount/master/install.sh | sh -s -- --systemd
 ```
 
 ### From source
