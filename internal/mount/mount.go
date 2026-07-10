@@ -46,6 +46,10 @@ func (m *Manager) Export(name string, pid int) error {
 		"target", targetPath,
 	)
 
+	if err := os.MkdirAll(m.TargetDir, 0755); err != nil {
+		return fmt.Errorf("create target directory %s: %w", m.TargetDir, err)
+	}
+
 	cmd := exec.Command(m.HelperPath, strconv.Itoa(pid), targetPath)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
