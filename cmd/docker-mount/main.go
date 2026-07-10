@@ -48,19 +48,42 @@ func main() {
 
 	flag.Parse()
 
-	resolvedHelper, cleanup, err := resolveHelper(*helperPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "helper: %v\n", err)
-		os.Exit(1)
-	}
-	defer cleanup()
-
 	args := flag.Args()
 
 	if len(args) > 0 {
 		handleSubcommand(args, *targetDir)
 		return
 	}
+
+	if !hasCapSysAdmin() {
+		if isTerminal() {
+			exe, err := os.Executable()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "CAP_SYS_ADMIN required — run as root or with sudo")
+				os.Exit(1)
+			}
+			argv := append([]string{exe}, os.Args[1:]...)
+			env := os.Environ()
+			cmd := exec.Command("sudo", argv...)
+			cmd.Env = env
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				os.Exit(1)
+			}
+			return
+		}
+		fmt.Fprintln(os.Stderr, "CAP_SYS_ADMIN required — run as root or with sudo")
+		os.Exit(1)
+	}
+
+	resolvedHelper, cleanup, err := resolveHelper(*helperPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "helper: %v\n", err)
+		os.Exit(1)
+	}
+	defer cleanup()
 
 	if *targetDir == "" {
 		fmt.Fprintln(os.Stderr, "--target is required")
@@ -292,6 +315,14 @@ func checkPrerequisites(targetDir, helperPath string) error {
 	}
 
 	return nil
+}
+
+func isTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
 func hasCapSysAdmin() bool {
