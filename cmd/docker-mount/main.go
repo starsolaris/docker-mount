@@ -35,6 +35,8 @@ import (
 	"mountns/internal/ns"
 	"mountns/internal/runtime"
 	"mountns/internal/watch"
+
+	"golang.org/x/sys/unix"
 )
 
 //go:embed docker-mount-helper
@@ -45,6 +47,26 @@ func main() {
 	helperPath := flag.String("helper", "", "path to C helper binary (empty = use embedded)")
 	interval := flag.Duration("interval", 30*time.Second, "poll reconciliation interval")
 	cleanupOnExit := flag.Bool("cleanup-on-exit", true, "unmount all exports on shutdown (default true)")
+
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), `Usage: docker-mount [flags]
+
+Flags:
+  --target string        target directory for mounts (required)
+  --helper string        path to C helper binary (empty = use embedded)
+  --interval duration    poll reconciliation interval (default %s)
+  --cleanup-on-exit      unmount all exports on shutdown (default %t)
+
+Subcommands (use with --target):
+  list                     show all exported mounts
+  info <container-name>    container metadata (PID, namespace, image)
+
+Subcommands (no --target needed):
+  cat <container-name> <path>   read a file via /proc
+  exec <container-name> <cmd...> run command in container
+
+`, *interval, *cleanupOnExit)
+	}
 
 	flag.Parse()
 
@@ -62,17 +84,17 @@ func main() {
 				fmt.Fprintln(os.Stderr, "CAP_SYS_ADMIN required — run as root or with sudo")
 				os.Exit(1)
 			}
-			argv := append([]string{exe}, os.Args[1:]...)
-			env := os.Environ()
-			cmd := exec.Command("sudo", argv...)
-			cmd.Env = env
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
+			sudoPath, err := exec.LookPath("sudo")
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "CAP_SYS_ADMIN required — sudo not found, install sudo or run as root")
 				os.Exit(1)
 			}
-			return
+			argv := append([]string{"sudo", exe}, os.Args[1:]...)
+			env := os.Environ()
+			if err := syscall.Exec(sudoPath, argv, env); err != nil {
+				fmt.Fprintf(os.Stderr, "CAP_SYS_ADMIN required — elevation failed: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		fmt.Fprintln(os.Stderr, "CAP_SYS_ADMIN required — run as root or with sudo")
 		os.Exit(1)
@@ -154,10 +176,18 @@ func handleSubcommand(args []string, targetDir string) {
 
 	switch subcmd {
 	case "list":
+		if targetDir == "" {
+			fmt.Fprintln(os.Stderr, "usage: docker-mount --target <dir> list")
+			os.Exit(1)
+		}
 		cmdList(targetDir)
 	case "info":
+		if targetDir == "" {
+			fmt.Fprintln(os.Stderr, "usage: docker-mount --target <dir> info <container-name>")
+			os.Exit(1)
+		}
 		if len(rest) < 1 {
-			fmt.Fprintln(os.Stderr, "usage: docker-mount info <container-name>")
+			fmt.Fprintln(os.Stderr, "usage: docker-mount --target <dir> info <container-name>")
 			os.Exit(1)
 		}
 		cmdInfo(rest[0], targetDir)
@@ -318,11 +348,8 @@ func checkPrerequisites(targetDir, helperPath string) error {
 }
 
 func isTerminal() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	_, err := unix.IoctlGetTermios(unix.Stdin, unix.TCGETS)
+	return err == nil
 }
 
 func hasCapSysAdmin() bool {
