@@ -2,9 +2,27 @@ package mount
 
 import (
 	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type StubMountOp struct {
+	Calls   []Call
+	WantErr error
+}
+
+type Call struct {
+	PID    int
+	Target string
+}
+
+func (s *StubMountOp) Run(pid int, target string) error {
+	s.Calls = append(s.Calls, Call{PID: pid, Target: target})
+	return s.WantErr
+}
 
 func TestParseMountinfoLineNormal(t *testing.T) {
 	line := "123 456 0:42 / /opt/mount/web-php rw,relatime - overlay overlay rw,lowerdir=...,upperdir=...,workdir=..."
@@ -103,7 +121,7 @@ func TestListFiltersSubmounts(t *testing.T) {
 		"999 0 0:99 / /other/mount rw - ext4 /dev/sda rw",
 	}, "\n") + "\n"
 
-	mgr := NewManager("/tmp/fs", "/fake/helper")
+	mgr := NewManager("/tmp/fs", nil)
 	mounts, err := mgr.listFromScanner(bufio.NewScanner(strings.NewReader(mountinfo)))
 	if err != nil {
 		t.Fatal(err)
@@ -132,12 +150,92 @@ func TestListPrefixMatch(t *testing.T) {
 	// /tmp/fs should not match /tmp/fstab
 	mountinfo := "1 0 0:1 / /tmp/fstab rw - ext4 /dev/sda rw\n"
 
-	mgr := NewManager("/tmp/fs", "/fake/helper")
+	mgr := NewManager("/tmp/fs", nil)
 	mounts, err := mgr.listFromScanner(bufio.NewScanner(strings.NewReader(mountinfo)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(mounts) != 0 {
 		t.Errorf("got %d mounts, want 0 — /tmp/fstab should not match /tmp/fs prefix", len(mounts))
+	}
+}
+
+func TestExportCallsMountOp(t *testing.T) {
+	dir := t.TempDir()
+	stub := &StubMountOp{}
+	mgr := NewManager(dir, stub)
+
+	err := mgr.Export("web", 12345)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	if len(stub.Calls) != 1 {
+		t.Fatalf("got %d calls, want 1", len(stub.Calls))
+	}
+	c := stub.Calls[0]
+	if c.PID != 12345 {
+		t.Errorf("PID = %d, want 12345", c.PID)
+	}
+	if c.Target != filepath.Join(dir, "web") {
+		t.Errorf("Target = %q, want %q", c.Target, filepath.Join(dir, "web"))
+	}
+}
+
+func TestExportMountOpError(t *testing.T) {
+	dir := t.TempDir()
+	stub := &StubMountOp{WantErr: fmt.Errorf("helper crashed")}
+	mgr := NewManager(dir, stub)
+
+	err := mgr.Export("web", 12345)
+	if err == nil {
+		t.Fatal("expected error from MountOp, got nil")
+	}
+}
+
+func TestExportNilMountOp(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewManager(dir, nil)
+
+	err := mgr.Export("web", 12345)
+	if err == nil {
+		t.Fatal("expected error for nil MountOperation, got nil")
+	}
+}
+
+func TestExportCreatesTargetDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mounts")
+	stub := &StubMountOp{}
+	mgr := NewManager(dir, stub)
+
+	err := mgr.Export("web", 12345)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("target dir not created: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("target is not a directory")
+	}
+}
+
+func TestReplaceCallsMountOp(t *testing.T) {
+	dir := t.TempDir()
+	stub := &StubMountOp{}
+	mgr := NewManager(dir, stub)
+
+	err := mgr.Replace("web", 99999)
+	if err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	if len(stub.Calls) != 1 {
+		t.Fatalf("got %d calls, want 1", len(stub.Calls))
+	}
+	if stub.Calls[0].PID != 99999 {
+		t.Errorf("PID = %d, want 99999", stub.Calls[0].PID)
 	}
 }

@@ -14,6 +14,21 @@ import (
 	"log/slog"
 )
 
+type MountOperation interface {
+	Run(pid int, target string) error
+}
+
+type HelperOp struct {
+	Path string
+}
+
+func (h *HelperOp) Run(pid int, target string) error {
+	cmd := exec.Command(h.Path, strconv.Itoa(pid), target)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	return cmd.Run()
+}
+
 // Info represents an exported container mount.
 type Info struct {
 	Name    string // container name (from target path basename)
@@ -24,19 +39,18 @@ type Info struct {
 
 // Manager manages exported container mounts under a target directory.
 type Manager struct {
-	TargetDir  string // e.g. "/opt/mount"
-	HelperPath string // path to docker-mount-helper binary
+	TargetDir string
+	op        MountOperation
 }
 
-// NewManager returns a Manager for the given target directory and helper.
-func NewManager(targetDir, helperPath string) *Manager {
+func NewManager(targetDir string, op MountOperation) *Manager {
 	return &Manager{
-		TargetDir:  targetDir,
-		HelperPath: helperPath,
+		TargetDir: targetDir,
+		op:        op,
 	}
 }
 
-// Export creates a new mount for the container by delegating to the C helper.
+// Export creates a new mount for the container by delegating to the MountOperation.
 func (m *Manager) Export(name string, pid int) error {
 	targetPath := filepath.Join(m.TargetDir, name)
 
@@ -50,12 +64,12 @@ func (m *Manager) Export(name string, pid int) error {
 		return fmt.Errorf("create target directory %s: %w", m.TargetDir, err)
 	}
 
-	cmd := exec.Command(m.HelperPath, strconv.Itoa(pid), targetPath)
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
+	if m.op == nil {
+		return fmt.Errorf("export %s: no MountOperation configured", name)
+	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("helper export %s (pid %d): %w", name, pid, err)
+	if err := m.op.Run(pid, targetPath); err != nil {
+		return fmt.Errorf("export %s (pid %d): %w", name, pid, err)
 	}
 
 	return nil

@@ -133,7 +133,7 @@ Subcommands (no --target needed):
 	defer cancel()
 
 	rt := runtime.NewDockerRuntime()
-	mgr := mount.NewManager(*targetDir, resolvedHelper)
+	mgr := mount.NewManager(*targetDir, &mount.HelperOp{Path: resolvedHelper})
 	w := watch.NewWatcher(rt, mgr, *interval)
 
 	slog.Info("starting docker-mount daemon",
@@ -212,7 +212,7 @@ func handleSubcommand(args []string, targetDir string) {
 
 // cmdList prints all exported mounts discovered under targetDir.
 func cmdList(targetDir string) {
-	mgr := mount.NewManager(targetDir, "")
+	mgr := mount.NewManager(targetDir, nil)
 	mounts, err := mgr.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list: %v\n", err)
@@ -230,7 +230,7 @@ func cmdList(targetDir string) {
 // cmdInfo prints metadata for a specific container.
 func cmdInfo(name, targetDir string) {
 	rt := runtime.NewDockerRuntime()
-	mgr := mount.NewManager(targetDir, "")
+	mgr := mount.NewManager(targetDir, nil)
 
 	pid, err := rt.GetPID(name)
 	if err != nil {
