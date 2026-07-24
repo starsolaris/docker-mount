@@ -87,7 +87,7 @@ func (m *Manager) CleanupAll() {
 
 	for _, mi := range mounts {
 		slog.Info("unmounting", "name", mi.Name, "target", mi.Target)
-		exec.Command("umount", "-R", "-l", mi.Target).Run()
+		exec.Command("umount", "-l", mi.Target).Run()
 		os.Remove(mi.Target)
 	}
 
@@ -115,10 +115,11 @@ func (m *Manager) Cleanup(name string) error {
 	return nil
 }
 
-// unmountLazy performs a lazy recursive umount via "umount -R -l <target>".
+// unmountLazy performs a lazy umount. -l alone detaches the entire subtree
+// atomically — -R adds a blocking traversal that can hang.
 func (m *Manager) unmountLazy(name string) error {
 	targetPath := filepath.Join(m.TargetDir, name)
-	return exec.Command("umount", "-R", "-l", targetPath).Run()
+	return exec.Command("umount", "-l", targetPath).Run()
 }
 
 // List returns all currently exported mounts under TargetDir by parsing
